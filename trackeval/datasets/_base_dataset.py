@@ -18,6 +18,8 @@ class _BaseDataset(ABC):
         self.class_list = None
         self.output_fol = None
         self.output_sub_fol = None
+        self.should_classes_combine = True
+        self.use_super_categories = False
 
     # Functions to implement:
 
@@ -42,8 +44,11 @@ class _BaseDataset(ABC):
     # Helper functions for all datasets:
 
     @classmethod
-    def get_name(cls):
+    def get_class_name(cls):
         return cls.__name__
+
+    def get_name(self):
+        return self.get_class_name()
 
     def get_output_fol(self, tracker):
         return os.path.join(self.output_fol, tracker, self.output_sub_fol)
@@ -151,7 +156,7 @@ class _BaseDataset(ABC):
             # check if file is empty
             if fp.tell():
                 fp.seek(0)
-                dialect = csv.Sniffer().sniff(fp.read(10240), delimiters=force_delimiters)  # Auto determine structure.
+                dialect = csv.Sniffer().sniff(fp.readline(), delimiters=force_delimiters)  # Auto determine structure.
                 dialect.skipinitialspace = True  # Deal with extra spaces between columns
                 fp.seek(0)
                 reader = csv.reader(fp, dialect)
@@ -160,7 +165,7 @@ class _BaseDataset(ABC):
                         # Deal with extra trailing spaces at the end of rows
                         if row[-1] in '':
                             row = row[:-1]
-                        timestep = row[time_col]
+                        timestep = str(int(float(row[time_col])))
                         # Read ignore regions separately.
                         is_ignored = False
                         for ignore_key, ignore_value in crowd_ignore_filter.items():
@@ -279,6 +284,17 @@ class _BaseDataset(ABC):
             union[union <= 0 + np.finfo('float').eps] = 1
             ious = intersection / union
             return ious
+
+    @staticmethod
+    def _calculate_euclidean_similarity(dets1, dets2, zero_distance=2.0):
+        """ Calculates the euclidean distance between two sets of detections, and then converts this into a similarity
+        measure with values between 0 and 1 using the following formula: sim = max(0, 1 - dist/zero_distance).
+        The default zero_distance of 2.0, corresponds to the default used in MOT15_3D, such that a 0.5 similarity
+        threshold corresponds to a 1m distance threshold for TPs.
+        """
+        dist = np.linalg.norm(dets1[:, np.newaxis]-dets2[np.newaxis, :], axis=2)
+        sim = np.maximum(0, 1 - dist/zero_distance)
+        return sim
 
     @staticmethod
     def _check_unique_ids(data, after_preproc=False):
